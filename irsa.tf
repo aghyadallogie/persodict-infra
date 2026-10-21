@@ -14,7 +14,7 @@ locals {
 # Official policy JSON from aws-load-balancer-controller repo.
 # We fetch it at plan time and inline it. Pinning to a specific release tag.
 data "http" "lbc_iam_policy" {
-  url = "https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.8.1/docs/install/iam_policy.json"
+  url = "https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.9.0/docs/install/iam_policy.json"
 }
 
 resource "aws_iam_policy" "lbc" {

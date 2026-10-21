@@ -1,7 +1,86 @@
-# Persodict Infrastructure — Build Progress
+# Persodict Infrastructure
 
-Reference notes for what's been built and why. Updated as progress goes.
+Terraform-managed AWS infrastructure for the Persodict NestJS backend.
 
+**Repos:**
+- `persodict-infra` (this repo) — AWS infra via Terraform
+- `Persodict-BE` — NestJS app + Dockerfile + GitHub Actions
+- `persodict-gitops` — Helm chart + ArgoCD Applications
+
+---
+
+## Status
+
+| Phase | Layer | Status |
+|---|---|---|
+| 0 | Prerequisites | ✅ |
+| 1 | Terraform state backend (S3 + DynamoDB) | ✅ |
+| 2 | Terraform code | ✅ |
+| 3 | VPC | ✅ |
+| 4 | EKS + node group | ✅ |
+| 5 | Cluster add-ons (metrics-server, LBC, ESO, ArgoCD) | ✅ |
+| 6 | Application layer (Helm chart, ArgoCD Application) | ✅ testing only |
+| 7 | CI/CD (GitHub Actions → ECR → GitOps → ArgoCD) | ✅ |
+| 8 | Staging + prod Applications | ⬜ next |
+| 9 | Domain + TLS | ⬜ |
+| 10 | Monitoring | ⬜ |
+
+App is live and reachable via ALB (HTTP, testing namespace).
+
+
+## Architecture
+AWS Account (us-east-1)
+│
+├── VPC 10.0.0.0/16 (vpc-0675e0fd31ba00068)
+│ ├── Public subnets 10.0.1.0/24, 10.0.2.0/24 → ALB, NAT
+│ ├── Private subnets 10.0.11.0/24, 10.0.12.0/24 → EKS worker nodes
+│ ├── Internet Gateway
+│ ├── NAT Gateway (single)
+│ └── Route tables
+│
+├── EKS persodict-eks (Kubernetes v1.33)
+│ ├── Control plane (AWS-managed, NOT inside VPC)
+│ ├── OIDC provider (for IRSA)
+│ ├── Node group persodict-ng (2× c7i-flex.large in private subnets)
+│ └── Namespaces: testing, (staging, prod pending)
+│
+├── ECR persodict-api
+│ └── Immutable tags, scan on push, lifecycle: keep 10 tagged / expire untagged 7d
+│
+├── Secrets Manager
+│ └── persodict/{testing,staging,prod} — JSON: DATABASE_URL, DEEPL_AUTH_KEY, JWT_SECRET
+│
+└── IAM
+├── IRSA roles: ALB controller, External Secrets
+└── CI user: github-actions-ecr-push (ECR push only)
+---
+
+**Mental model:** EKS control plane lives in AWS-managed infra, associated with the VPC via ENIs. Worker nodes (EC2) live in private subnets. Pods run on those nodes.
+
+---
+
+## Files
+
+| File | Purpose |
+|---|---|
+| `backend.tf` | S3 + DynamoDB state backend |
+| `providers.tf` | aws, tls, http providers; region; default tags |
+| `vpc.tf` | VPC, subnets, IGW, NAT, routes |
+| `eks.tf` | EKS cluster, OIDC provider, node group |
+| `irsa.tf` | IAM roles for ALB controller + External Secrets |
+| `ecr.tf` | ECR repo + lifecycle policy |
+| `secrets.tf` | Secrets Manager shells per env |
+| `ci.tf` | IAM user for GitHub Actions (ECR push) |
+
+---
+
+## Terraform Workflow
+
+```bash
+terraform init       # download providers, connect to backend
+terraform validate
+terraform plan
+terraform apply
 ---
 
 ## Phase 0 — Prerequisites ✅
@@ -96,7 +175,7 @@ Expected: 2 nodes, `STATUS = Ready`.
 
 ---
 
-## Phase 5 — Cluster Add-ons ⬜ (next)
+## Phase 5 — Cluster Add-ons ✅
 
 Helm-installed components that make the cluster usable:
 
@@ -109,7 +188,7 @@ Each needs a matching IRSA role (created in Terraform) to assume AWS permissions
 
 ---
 
-## Phase 6 — Application Layer ⬜
+## Phase 6 — Application Layer ✅
 
 - **Helm chart** for the NestJS app (in `persodict-gitops` repo).
 - **Per-env values**: `testing.yaml`, `staging.yaml`, `prod.yaml`.
@@ -118,7 +197,7 @@ Each needs a matching IRSA role (created in Terraform) to assume AWS permissions
 
 ---
 
-## Phase 7 — CI/CD ⬜
+## Phase 7 — CI/CD ✅
 
 - **App repo** (`Persodict-BE`): GitHub Actions → lint, test, build image, push to ECR.
 - **CI bumps image tag** in `persodict-gitops` repo → ArgoCD syncs.
